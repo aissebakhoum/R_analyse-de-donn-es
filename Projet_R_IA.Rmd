@@ -1,0 +1,448 @@
+---
+title: "Projet_R_IA"
+author: "Aisse Mamadou BAKHOUM"
+date: "2023-01-16"
+output:
+  html_document: default
+  pdf_document: default
+---
+---
+title: "Projet_R"
+author: "Aisse Mamadou BAKHOUM"
+date: "2023-01-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**1 Préparation des données**
+
+**1.2 Importation et mise en forme**
+
+* Importer la base de données dans un objet de type **data.frame** nommé **projet**
+
+```{r}
+library(readxl) #chargement de la bibliothèque readxl
+donnee=read_excel("C:/Users/DELL/Desktop/R_M1/Base_Projet.xlsx") #importation de la base du fichier excel
+projet=data.frame(donnee)
+projet
+library(forcats) #chargement du package forcats pour gérer les variables
+```
+* Donner le nombre de lignes (i.e. le nombre de PME) et colonnes (i.e. nombre de variables) de la base **projet**
+```{r}
+nrow(projet) #Le nombre de ligne(nombre de PME)
+ncol(projet) #Le nombre de colonne(nombre de variable)
+
+```
+* Vérifier s’il y a des valeurs manquantes pour la variable **key** dans la base **projet**. Si oui, identifier la (ou les) PME concernée(s)
+
+```{r}
+is.na(projet$key) #vérification des valeurs manquantes pour la variable key
+#la fonction nous renvoie false c'est-à-dire qu'il ya pas de valeurs manquantes 
+
+```
+**1.3 Création de variables**
+
+* Rénommer la variable **q1** en **region**,**q2** en **departement** et **q23** en **sexe**
+
+```{r}
+# chargement du package dplyr et pour renommer on utilise la fonction rename
+library(tidyverse)
+library(dplyr,quietly = TRUE)
+projet_ren = projet %>% rename("region" = "q1", "departement" = "q2", "sexe" = "q23") 
+#On utilse %>% pour charger les noms de colonnes renommées
+projet_ren
+head(projet_ren) #affiche les 6 premières colonnes pour verifier si le renommage passe bien
+
+```
+* Créer la variable **sexe_2** qui vaut **1** si **sexe égale à Femme** et **0** sinon
+```{r}
+sexe_2 = ifelse(projet_ren$sexe=="Femme", 1, 0)
+sexe_2
+
+```
+
+* Créer un **data.frame** nommé **langues** qui prend les variables **key** et les variables correspondantes décrites plus haut
+```{r}
+langues = projet %>% select("key", starts_with("q24a_"))
+langues
+```
+* Créer une variable **parle** qui est égale au nombre de langue parlée par le dirigeant de la PME.
+```{r}
+langues = langues %>% mutate(parle=rowSums(langues[2:10]))
+langues
+```
+
+* Sélectionnez uniquement les variables **key** et **parle**, l’objet de retour sera **langues**
+```{r}
+langues =langues %>% select("key", "parle")
+langues
+```
+* Merger les **data.frame projet** et **langues**
+```{r}
+df = merge(projet_ren,langues, by="key")
+df
+```
+
+
+**2 Analyse descriptive**
+
+```{r}
+
+#Utilisation  de la fonction univarie()
+univarie <- function(df, nom_var, nom_var_cible, ...) {
+  
+  # Vérification des noms de colonnes du data frame(df)
+  stopifnot(is.data.frame(df)) #On utilise la fonction stopifnot pour verifier l'existence du data frame
+  stopifnot(nom_var %in% colnames(df), nom_var_cible %in% colnames(df))  
+  
+  result <- data.frame()
+  
+  #Analyse à appliquer pour une variable numérique
+  if (is.numeric(df[, nom_var])){
+    #Résumé statistique de la variable avec summary()
+     result <- summary(df[nom_var], na.rm=T) #la fonction renvoie 5 valeurs : le minimum (Min.), le premier quartile (1st Qu.), la médiane (Median), la moyenne (Mean), le troisième quartile (3rd Qu.) et le maximum (Max)
+     
+     #Calcul de l'ecart-type avec la fonction sd()
+     result <- rbind(result, paste("Ec-type.:", round(sd(df[,nom_var], na.rm=T), 2), sep = ""))
+        
+    # Réalisation de la boîte à moustâche avec la fonction boxplot() 
+    boxplot(df[, nom_var] ~ df[, nom_var_cible], ylim=c(min(df[nom_var]),max(df[nom_var])), 
+            xlab=paste("", nom_var_cible), ylab=paste("", nom_var), 
+            main = paste("Boxplot de ", nom_var, "suivant ", nom_var_cible))
+  }
+  
+  #Analyse à appliquer pour une variable catégorique
+  if (is.factor(df[, nom_var]) | is.character(df[, nom_var])){
+    #création d'un dataframe pour les stats de la variable selon la cible
+    result <- data.frame(matrix(unlist(unique(df[, nom_var_cible])), nrow=length(unique(df[, nom_var_cible])),
+                                  byrow=TRUE),stringsAsFactors=FALSE)
+    colnames(result)[1] <- nom_var_cible
+  
+     modalite_cible <- unique(df[, nom_var_cible])
+     modalite_var <- unique(df[, nom_var])
+     for (i in 1:length(modalite_var)){
+       nbr = c()
+       frq = c()
+       f <- df %>% filter(df[, nom_var]==modalite_var[i])
+       for (j in 1:length(modalite_cible)){
+         filtre <- df %>% filter(df[, nom_var_cible]==modalite_cible[j] & df[, nom_var]==modalite_var[i])
+         nbr[length(nbr)+1] = nrow(filtre)
+         frq[length(frq)+1] = nrow(filtre)/nrow(f)
+       }
+       stat<-data.frame(matrix(c(nbr,frq),length(modalite_cible), 2))
+      names(stat)<-c(paste("NBR", modalite_var[i], sep = "_"), paste("FRQ", modalite_var[i], sep = "_"))
+
+      result<-cbind(result,stat)
+       
+     }
+    # Réalisation Diagramme à barre avec ggplot()
+     #barplot(table(df[nom_var]))
+     colf <- data.frame(table(df[nom_var]))
+     per_data <- df %>% count(df[, nom_var]) %>% mutate(per=n/sum(n), per_label = paste0(round(per*100, 2), "%"))
+    ggbarplot <- ggplot(per_data, aes(x=colf[, 1], y=per))+
+      geom_bar(stat = "identity", width = 0.7)+
+      geom_text(aes(label= per_label), vjust=0, color = "blue", size=5)+
+      labs(x="", y = "Fréquence", title = paste("Répartition de la variable", nom_var, sep = " "))
+    
+    # Réalisation Diagramme à barre de la variable suivant la cible
+    
+    
+    perdata <- df %>% group_by(df[, nom_var], df[, nom_var_cible]) %>% 
+      tally() %>% mutate(frequence=n/sum(n), per_label = paste0(round(frequence*100, 2), "%"))
+      
+       
+      plotcible <-  ggplot(data=perdata, aes(x=factor(perdata[[2]]), y=frequence, fill=perdata[[1]])) +
+      geom_bar(stat="identity", position=position_dodge())+
+      geom_text(aes(label=per_label), vjust=1.6, color="black",
+                position = position_dodge(0.9), size=3.5)+
+      scale_fill_brewer(palette="Paired")+ 
+      labs(x=paste(nom_var_cible,""),y="Fréquences", fill = paste0(nom_var, ""),
+           title =paste("Répartition de ", nom_var ,"suivant ",nom_var_cible))+
+      theme_gray()
+      
+      
+    print(ggbarplot)
+    print(plotcible)
+    
+  }
+  
+  
+  
+  
+  # sortie
+  return(result)
+}
+
+#Utilisation de la fonction univarie()
+univarie(projet, "q25", "filiere_1")
+```
+
+```{r}
+library(questionr)
+#Implémentation de la fonction bivarie()
+bivarie <- function(table_df, nom_vars, nom_var_quali, ...) { 
+  #Vérification du dataFrame
+  stopifnot(is.data.frame(table_df))
+  # Vérification de la taille de nom_vars_quanti et des noms de colonnes de table_df
+  stopifnot(length(nom_vars) == 2, 
+            all(nom_vars %in% colnames(table_df))) 
+  
+  # Vérification de nom_var_quali
+  stopifnot(nom_var_quali %in% colnames(table_df)) 
+  
+  # on identifie les modalités et leur nombre 
+    modalites <- unique(table_df[, nom_var_quali])
+  
+  n.modalites <- length(modalites)
+  
+  # on prépare la matrice contenant les effectifs et les coeff. de corrélation par modalité
+  res <- matrix(0, n.modalites, 2)
+  
+  resultbivarie <- data.frame()
+  
+  #Entre deux variables quantitatives
+  if (is.numeric(table_df[, nom_vars[1]]) & is.numeric(table_df[, nom_vars[2]])){
+    for(i in 1:n.modalites) {
+      # on identifie les indices associés à la modalité k
+      mod <- which(table_df[, nom_var_quali] == modalites[i])
+      # on remplit les effectifs
+      res[i, 1] <- length(mod)
+      # on calcule le coefficient de corrélation
+      res[i, 2] <- cor(table_df[mod, nom_vars[1]], 
+                       table_df[mod, nom_vars[2]])
+      # on dessine le nuage de points correspondants 
+      plot(table_df[mod, nom_vars[1]], 
+           table_df[mod, nom_vars[2]], 
+           main = paste("Modalité", modalites[i], 
+                        "(r =", round(res[i, 2], 2),")"), xlab = paste("", nom_vars[1]), ylab = paste("", nom_vars[2]),
+           xlim = range(table_df[, nom_vars[1]]), 
+           ylim = range(table_df[, nom_vars[2]]), 
+           ...) 
+    }
+    resultbivarie <- data.frame(mod = modalites, n = res[, 1], cor = res[, 2])
+  }
+  
+  #Entre deux variables qualitatives
+  if ((is.factor(table_df[, nom_vars[1]]) | is.character(table_df[, nom_vars[1]])) & (is.factor(table_df[, nom_vars[2]]) |
+                                                                                      is.character(table_df[, nom_vars[2]]))){
+    
+    #création d'un dataframe pour les stats
+    resultbivarie <- data.frame(matrix(unlist(unique(table_df[, nom_vars[2]])), nrow=length(unique(table_df[, nom_vars[2]])), byrow=TRUE),stringsAsFactors=FALSE)
+    
+    colnames(resultbivarie)[1] <- nom_vars[2]
+  
+     modalite_cible <- unique(table_df[, nom_vars[2]])
+     modalite_var <- unique(table_df[, nom_vars[1]])
+     for (i in 1:length(modalite_var)){
+       nbr = c()
+       frq = c()
+       f <- table_df %>% filter(table_df[, nom_vars[1]]==modalite_var[i])
+       for (j in 1:length(modalite_cible)){
+         filtre <- table_df %>% filter(table_df[, nom_vars[2]]==modalite_cible[j] & table_df[, nom_vars[1]]==modalite_var[i])
+         nbr[length(nbr)+1] = nrow(filtre)
+         frq[length(frq)+1] = nrow(filtre)/nrow(f)
+       }
+       stat<-data.frame(matrix(c(nbr,frq),length(modalite_cible), 2))
+      names(stat)<-c(paste("NBR", modalite_var[i], sep = "_"), paste("FRQ", modalite_var[i], sep = "_"))
+
+      resultbivarie<-cbind(resultbivarie,stat)
+       
+     }
+    
+    
+    #Création d'un barplot
+    perdata <- table_df %>% group_by(table_df[, nom_vars[1]], table_df[, nom_vars[2]]) %>% 
+      tally() %>% mutate(frequence=n/sum(n), per_label = paste0(round(frequence*100, 2), "%"))
+      
+       
+      plotcible <-  ggplot(data=perdata, aes(x=factor(perdata[[2]]), y=frequence, fill=perdata[[1]])) +
+      geom_bar(stat="identity", position=position_dodge())+
+      geom_text(aes(label=per_label), vjust=1.6, color="black",
+                position = position_dodge(0.9), size=3.5)+
+      scale_fill_brewer(palette="Paired")+ 
+      labs(x=paste(nom_vars[2],""),y="Fréquences", fill = paste0(nom_vars[1], ""),
+           title =paste("Répartition de ", nom_vars[1] ,"suivant ",nom_vars[2]))+
+      theme_gray()
+      
+    print(plotcible)
+  }
+  
+  #Entre une variable quantitative et une variable qualitative
+  else {
+    if (is.numeric(table_df[, nom_vars[1]])){
+       boxplot(table_df[, nom_vars[1]] ~ table_df[, nom_vars[2]], 
+            xlab=paste("", nom_vars[2]), ylab=paste("", nom_vars[1]),
+            main = paste("Boxplot de ", nom_vars[1], "suivant ", nom_vars[2]))
+    }
+    else {
+      boxplot(table_df[, nom_vars[2]] ~ table_df[, nom_vars[1]], 
+            xlab=paste("", nom_vars[1]), ylab=paste("", nom_vars[2]),
+            main = paste("Boxplot de ", nom_vars[2], "suivant ", nom_vars[1]))
+    }
+     
+  }
+  
+  # on retourne le résultat sous forme de data.frame
+  return(resultbivarie)
+}
+
+#Application avec la base de données iris
+#bivarie(projet, c("sexe","q25"), "filiere_1")
+```
+**3	Un peu de cartographie **
+
+* Transformer le **data.frame** en données géographiques dont l’objet sera nommé **projet_map**
+```{r}
+
+library(ggplot2) #chargement du package gglot2 pour les graphique
+library(ggspatial)
+library(sf) # pour les objets spatials
+#Convertir le format sp au format sf
+projet_map = st_as_sf(x = projet, coords = c("gps_menlongitude", "gps_menlatitude"), crs = 6622) 
+projet_map
+```
+* Trouver le code qui permet d’avoir la carte ci-dessous
+```{r}
+#	Donner des axes, titre, légende, orientation, échelle à la carte ci-dessus 
+ggplot(projet_map) +
+  aes(colour = "sexe") +
+  geom_sf(size = 2L) +
+  scale_color_hue(direction = 1) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Cartographie des données géographique par rapport à sexe"
+  ) +
+  annotation_scale(location = "bl", width_hint = 0.6)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+
+**Importer et afficher les différentes cartes suivant les niveaux décrits ci-dessus**
+```{r}
+SEN_adm0 <- st_read("C:/Users/DELL/Desktop/R_M1/SEN_adm/SEN_adm0.shp",quiet = T)
+ggplot(st_geometry(SEN_adm0)) + geom_sf()+
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Carte du Sénégal"
+  ) + 
+  annotation_scale(location = "bl", width_hint = 0.3)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+```{r}
+SEN_adm1 <- st_read("C:/Users/DELL/Desktop/R_M1/SEN_adm/SEN_adm1.shp",quiet = T)
+
+ggplot(SEN_adm1) +
+  aes(fill = NAME_1) +
+  geom_sf(size = 1.2) +
+  scale_fill_hue(direction = 1) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Carte du Sénégal selon les régions"
+  ) + 
+   annotation_scale(location = "bl", width_hint = 0.3)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+
+```{r}
+SEN_adm2 <- st_read("C:/Users/DELL/Desktop/R_M1/SEN_adm/SEN_adm2.shp",quiet = T)
+ggplot(st_geometry(SEN_adm2)) + geom_sf()+
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Carte du Sénégal selon les départements"
+  ) + 
+   annotation_scale(location = "bl", width_hint = 0.3)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+
+```{r}
+SEN_adm3 <- st_read("C:/Users/DELL/Desktop/R_M1/SEN_adm/SEN_adm3.shp",quiet = T)
+ggplot(st_geometry(SEN_adm3)) + geom_sf()+
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Carte du Sénégal selon les communes"
+  ) + 
+  annotation_scale(location = "bl", width_hint = 0.3)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+**Représentation spatiale des PME suivant le sexe**
+
+```{r}
+ggplot(projet_map) +
+  aes(colour = "sexe") +
+  geom_sf(size = 2L) +
+  scale_color_hue(direction = 1) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Représentation spatiale des PME selon le sexe"
+  ) +
+  annotation_scale(location = "bl", width_hint = 0.6)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+
+**Représentation spatiale des PME suivant le niveau d'instruction**
+```{r}
+ggplot(projet_map) +
+  aes(colour = q25) +
+  geom_sf(size = 2L) +
+  scale_color_hue(direction = 1) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Représentation spatiale des PME selon le niveau d'instruction"
+  ) +
+  annotation_scale(location = "bl", width_hint = 0.6)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+
+**Représentation spatiale des PME suivant le statut juridique**
+```{r}
+ggplot(projet_map) +
+  aes(colour = q12) +
+  geom_sf(size = 2L) +
+  scale_color_hue(direction = 1) +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    title = "Représentation spatiale des PME selon le statut juridique"
+  ) +
+  annotation_scale(location = "bl", width_hint = 0.6)+
+  annotation_north_arrow(location = "tr", which_north = "true",
+                         pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"))+
+  theme_gray()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
